@@ -1,0 +1,57 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Ambience {
+  forest
+  ocean
+  mountain
+}
+
+model User {
+  id        String         @id @default(cuid())
+  username  String         @unique
+  createdAt DateTime       @default(now())
+  journals  JournalEntry[]
+}
+
+model JournalEntry {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  ambience    Ambience
+  text        String
+
+  emotion     String?
+  summary     String?
+  keywords    String[]  // PostgreSQL supports scalar string arrays
+
+  analyzedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([emotion])
+}
+
+model AnalysisCache {
+  id          String   @id @default(cuid())
+  textHash     String   @unique
+  originalText String
+  emotion      String
+  summary      String
+  keywords     String[]
+  createdAt    DateTime @default(now())
+}
