@@ -1,6 +1,7 @@
 import { asyncHandler } from "../utils/async-handler.js";
 import { ApiResponse } from "../utils/api-response.js";
-import { createEntry, getEntriesByUser } from "../services/journal.service.js";
+import { createEntry, getEntriesByUser, getInsightsByUserId } from "../services/journal.service.js";
+import { analyzeJournalText } from "../services/llm.service.js";
 
 // POST /api/journal
 // Reads { username, ambience, text } from body, delegates to service, returns 201.
@@ -26,4 +27,28 @@ const getJournalEntries = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, entries, "Journal entries fetched"));
 });
 
-export { createJournalEntry, getJournalEntries };
+// POST /api/journal/analyze
+// Reads { text } from body, runs LLM analysis (cache-backed), returns { emotion, keywords, summary }.
+const analyzeText = asyncHandler(async (req, res) => {
+  const { text } = req.body;
+
+  const result = await analyzeJournalText(text);
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, result, "Analysis complete"));
+});
+
+// GET /api/journal/insights/:userId
+// Reads userId from params, delegates to service, returns 200 with aggregated stats.
+const getJournalInsights = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  const insights = await getInsightsByUserId(userId);
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, insights, "Insights fetched"));
+});
+
+export { createJournalEntry, getJournalEntries, analyzeText, getJournalInsights };

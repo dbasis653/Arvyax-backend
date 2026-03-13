@@ -4,6 +4,8 @@ import { ValidationError } from "../utils/api-error.js";
 import {
   createJournalEntry,
   getJournalEntries,
+  analyzeText,
+  getJournalInsights,
 } from "../controllers/journal.controller.js";
 
 const router = Router();
@@ -34,6 +36,28 @@ router.post(
   ],
   validate,
   createJournalEntry,
+);
+
+// GET /api/journal/insights/:userId — must be registered before /:username to avoid route conflict
+router.get(
+  "/insights/:userId",
+  [param("userId").notEmpty().withMessage("userId param is required")],
+  validate,
+  getJournalInsights,
+);
+
+// POST /api/journal/analyze — must be registered before /:username to avoid route conflict
+router.post(
+  "/analyze",
+  [
+    body("text")
+      .notEmpty()
+      .withMessage("text is required")
+      .isLength({ max: 5000 })
+      .withMessage("text must be 5000 characters or fewer"),
+  ],
+  validate,
+  analyzeText,
 );
 
 // GET /api/journal/:username
