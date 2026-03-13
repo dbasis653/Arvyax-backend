@@ -1,7 +1,8 @@
 import { asyncHandler } from "../utils/async-handler.js";
 import { ApiResponse } from "../utils/api-response.js";
-import { createEntry, getEntriesByUser, getInsightsByUserId } from "../services/journal.service.js";
+import { createEntry, getEntriesByUser, getInsightsByUserId, analyzeAndUpdateEntry } from "../services/journal.service.js";
 import { analyzeJournalText } from "../services/llm.service.js";
+import prisma from "../db/prisma.js";
 
 // POST /api/journal
 // Reads { username, ambience, text } from body, delegates to service, returns 201.
@@ -51,4 +52,50 @@ const getJournalInsights = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, insights, "Insights fetched"));
 });
 
-export { createJournalEntry, getJournalEntries, analyzeText, getJournalInsights };
+// POST /api/journal/:id/analyze
+// Streams LLM analysis for the given entry as Server-Sent Events.
+// Emits { type:'chunk', text } for each token, { type:'done', entry } on completion,
+// and { type:'error', message } on failure. Cannot use asyncHandler because SSE headers
+// are flushed before async work begins, preventing Express from sending error responses.
+const analyzeEntryById = async (req, res) => {
+  const { id } = req.params;
+
+  // 1. Confirm entry exists before flushing SSE headers — allows a normal 404 response if missing
+  const exists = await prisma.journalEntry.findUnique({ where: { id }, select: { id: true } });
+  if (!exists) {
+    return res.status(404).json({ success: false, message: "Journal entry not found" });
+  }
+
+  // 2. Open the SSE connection
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  // 3. Wire client disconnect to abort the in-flight Groq request
+  const ac = new AbortController();
+  let aborted = false;
+  req.on("close", () => {
+    aborted = true;
+    ac.abort();
+  });
+
+  const sendEvent = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+  // 4. Stream tokens to the client as they arrive; stop writing if client disconnected
+  const onChunk = (text) => {
+    if (!aborted) sendEvent({ type: "chunk", text });
+  };
+
+  try {
+    const updatedEntry = await analyzeAndUpdateEntry(id, onChunk, ac.signal);
+    sendEvent({ type: "done", entry: updatedEntry });
+  } catch (err) {
+    sendEvent({ type: "error", message: err.message || "Analysis failed" });
+  } finally {
+    res.end();
+  }
+};
+
+export { createJournalEntry, getJournalEntries, analyzeText, getJournalInsights, analyzeEntryById };

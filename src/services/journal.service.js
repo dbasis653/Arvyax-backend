@@ -2,38 +2,55 @@ import prisma from "../db/prisma.js";
 import { NotFoundError } from "../utils/api-error.js";
 import { analyzeJournalText } from "./llm.service.js";
 
-// Creates a new journal entry for the given user, then immediately analyzes it with the LLM.
+// Creates a new journal entry for the given user without running LLM analysis.
 // Accepts { username, ambience, text }, resolves username to userId, and persists to DB.
 // Throws NotFoundError if no user with that username exists.
-// Returns the JournalEntry record with emotion, keywords, summary, and analyzedAt already populated.
+// Returns the JournalEntry record with emotion and summary set to 'no-analysis'.
 const createEntry = async ({ username, ambience, text }) => {
   // 1. Resolve username to the internal user id
   const user = await prisma.user.findUnique({ where: { username } });
   if (!user) throw new NotFoundError("User not found");
 
-  // 2. Persist the entry first so it gets an id regardless of analysis outcome
+  // 2. Persist the entry with placeholder analysis fields — analysis runs on demand via analyzeAndUpdateEntry
   const entry = await prisma.journalEntry.create({
-    data: { userId: user.id, ambience, text },
+    data: {
+      userId: user.id,
+      ambience,
+      text,
+      emotion: "no-analysis",
+      summary: "no-analysis",
+      keywords: [],
+    },
   });
 
-  // 3. Analyze the text via LLM (cache-backed) and write results back to the entry.
-  // Wrapped in try/catch so an LLM failure never prevents the entry from being saved —
-  // analysis fields stay null and the entry is still returned successfully.
-  try {
-    const analysis = await analyzeJournalText(text);
-    const analyzed = await prisma.journalEntry.update({
-      where: { id: entry.id },
-      data: {
-        emotion: analysis.emotion,
-        keywords: analysis.keywords,
-        summary: analysis.summary,
-        analyzedAt: new Date(),
-      },
-    });
-    return analyzed;
-  } catch {
-    return entry;
-  }
+  return entry;
+};
+
+// Runs LLM analysis on an existing entry by id, streaming tokens via onChunk, and persists the results.
+// onChunk(text) — called for each token during a live LLM call; never called on cache hits.
+// signal — optional AbortSignal to cancel the Groq request mid-stream.
+// Throws NotFoundError if no entry with that id exists.
+// Returns the updated JournalEntry record with emotion, summary, keywords, and analyzedAt populated.
+const analyzeAndUpdateEntry = async (id, onChunk, signal) => {
+  // 1. Fetch the entry to get its text
+  const entry = await prisma.journalEntry.findUnique({ where: { id } });
+  if (!entry) throw new NotFoundError("Journal entry not found");
+
+  // 2. Run LLM analysis (cache-backed); tokens stream via onChunk during live calls
+  const analysis = await analyzeJournalText(entry.text, onChunk, signal);
+
+  // 3. Persist the analysis results back to the entry
+  const updated = await prisma.journalEntry.update({
+    where: { id },
+    data: {
+      emotion: analysis.emotion,
+      keywords: analysis.keywords,
+      summary: analysis.summary,
+      analyzedAt: new Date(),
+    },
+  });
+
+  return updated;
 };
 
 // Fetches all journal entries for a given username, newest first.
@@ -73,7 +90,7 @@ const getInsightsByUserId = async (userId) => {
   // 4. Count emotion occurrences across analyzed entries, pick the highest
   const emotionCounts = {};
   for (const entry of entries) {
-    if (entry.emotion) {
+    if (entry.emotion && entry.emotion !== "no-analysis") {
       emotionCounts[entry.emotion] = (emotionCounts[entry.emotion] ?? 0) + 1;
     }
   }
@@ -87,8 +104,7 @@ const getInsightsByUserId = async (userId) => {
   // 5. Count ambience occurrences, pick the highest
   const ambienceCounts = {};
   for (const entry of entries) {
-    ambienceCounts[entry.ambience] =
-      (ambienceCounts[entry.ambience] ?? 0) + 1;
+    ambienceCounts[entry.ambience] = (ambienceCounts[entry.ambience] ?? 0) + 1;
   }
   const mostUsedAmbience =
     Object.keys(ambienceCounts).length > 0
@@ -112,4 +128,9 @@ const getInsightsByUserId = async (userId) => {
   return { totalEntries, topEmotion, mostUsedAmbience, recentKeywords };
 };
 
-export { createEntry, getEntriesByUser, getInsightsByUserId };
+export {
+  createEntry,
+  getEntriesByUser,
+  getInsightsByUserId,
+  analyzeAndUpdateEntry,
+};

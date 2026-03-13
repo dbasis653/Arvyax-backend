@@ -1,5 +1,5 @@
 import prisma from "../db/prisma.js";
-import { ConflictError } from "../utils/api-error.js";
+import { ConflictError, NotFoundError } from "../utils/api-error.js";
 
 // Creates a new user with the given username.
 // Throws ConflictError if the username is already taken.
@@ -16,4 +16,18 @@ const createUser = async ({ username }) => {
   });
 };
 
-export { createUser };
+// Finds an existing user by username.
+// Throws NotFoundError if no user with that username exists.
+// Returns { id, username, createdAt } of the found user.
+const loginUser = async ({ username }) => {
+  const user = await prisma.user.findUnique({
+    where: { username },
+    select: { id: true, username: true, createdAt: true },
+  });
+
+  if (!user) throw new NotFoundError("No account found with that username");
+
+  return user;
+};
+
+export { createUser, loginUser };

@@ -9,9 +9,16 @@ app.use(express.urlencoded({ extended: true, limit: "16kb" }));
 app.use(express.static("public"));
 app.use(cookieParser());
 
+//CORS configuration
+const rawCorsOrigin = process.env.CORS_ORIGIN;
+const corsOrigin =
+  !rawCorsOrigin || rawCorsOrigin === "*"
+    ? "*"
+    : rawCorsOrigin.split(",").map((o) => o.trim());
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN?.split(",") || "http://localhost:5173",
+    origin: corsOrigin,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Authorization", "Content-Type"],

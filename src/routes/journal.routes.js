@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { rateLimit } from "express-rate-limit";
 import { body, param, validationResult } from "express-validator";
 import { ValidationError } from "../utils/api-error.js";
 import {
@@ -6,9 +7,23 @@ import {
   getJournalEntries,
   analyzeText,
   getJournalInsights,
+  analyzeEntryById,
 } from "../controllers/journal.controller.js";
 
 const router = Router();
+
+// Limits LLM-backed endpoints to 10 requests per 15 minutes per IP.
+// Protects against Groq API quota exhaustion and cost abuse.
+const llmRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests, please try again later.",
+  },
+});
 
 // Middleware that checks express-validator results and throws a ValidationError if any fail.
 // Applied after every validate() call so controllers never see invalid input.
@@ -23,6 +38,7 @@ const validate = (req, _res, next) => {
 // POST /api/journal
 router.post(
   "/",
+  llmRateLimiter,
   [
     body("username").notEmpty().withMessage("username is required"),
     body("ambience")
@@ -49,6 +65,7 @@ router.get(
 // POST /api/journal/analyze — must be registered before /:username to avoid route conflict
 router.post(
   "/analyze",
+  llmRateLimiter,
   [
     body("text")
       .notEmpty()
@@ -58,6 +75,15 @@ router.post(
   ],
   validate,
   analyzeText,
+);
+
+// POST /api/journal/:id/analyze — must be registered before /:username to avoid route conflict
+router.post(
+  "/:id/analyze",
+  llmRateLimiter,
+  [param("id").notEmpty().withMessage("id param is required")],
+  validate,
+  analyzeEntryById,
 );
 
 // GET /api/journal/:username

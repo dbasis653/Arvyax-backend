@@ -29,11 +29,12 @@ Journal:
 """${text}"""
 `.trim();
 
-// Sends a prompt to Groq and returns the raw text content from the model's reply.
-// Uses temperature 0.2 for consistent, deterministic structured output.
+// Sends a prompt to Groq with stream:true and yields token chunks via onChunk as they arrive.
+// Accumulates all tokens and returns the full string once the stream ends.
+// Accepts an optional AbortSignal to cancel the in-flight request (e.g. on client disconnect).
 // Throws ExternalServiceError if the HTTP request fails or returns a non-OK status.
-const callLLM = async (prompt) => {
-  // 1. Send request to Groq chat completions endpoint
+const callLLMStream = async (prompt, onChunk, signal) => {
+  // 1. Send streaming request to Groq chat completions endpoint
   const response = await fetch(LLM_URL, {
     method: "POST",
     headers: {
@@ -44,7 +45,9 @@ const callLLM = async (prompt) => {
       model: LLM_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: LLM_TEMPERATURE,
+      stream: true,
     }),
+    signal,
   });
 
   // 2. Treat any non-2xx status as an external service failure
@@ -55,15 +58,42 @@ const callLLM = async (prompt) => {
     );
   }
 
-  // 3. Extract the model's text reply from the choices array
-  const data = await response.json();
-  const rawContent = data?.choices?.[0]?.message?.content;
+  // 3. Read the SSE stream, extract delta tokens, call onChunk for each, accumulate full text
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let accumulated = "";
+  let buffer = "";
 
-  if (!rawContent) {
-    throw new ExternalServiceError("LLM returned an empty response");
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    // Append decoded bytes to buffer; keep last incomplete line for the next iteration
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6).trim();
+      if (payload === "[DONE]") return accumulated;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+
+      const text = parsed?.choices?.[0]?.delta?.content;
+      if (text != null) {
+        accumulated += text;
+        onChunk(text);
+      }
+    }
   }
 
-  return rawContent;
+  return accumulated;
 };
 
 // Parses and validates the raw string returned by the model.
@@ -102,11 +132,14 @@ const parseAndValidate = (rawContent) => {
 
 // Orchestrates the full analysis pipeline for a journal text:
 //   1. Check AnalysisCache by SHA-256 hash of the text
-//   2. Return cached result immediately if found (avoids redundant LLM calls)
-//   3. Call OpenRouter and parse the response
-//   4. Save the result to AnalysisCache for future lookups
-//   5. Return { emotion, keywords, summary }
-const analyzeJournalText = async (text) => {
+//   2. Return cached result immediately if found — onChunk is never called on a cache hit
+//   3. Stream tokens from Groq via callLLMStream, calling onChunk for each token
+//   4. Parse and validate the accumulated response
+//   5. Save the result to AnalysisCache for future lookups
+//   6. Return { emotion, keywords, summary }
+// onChunk(text) — called for each token chunk during a live LLM call; skipped on cache hits
+// signal — optional AbortSignal to cancel the Groq request mid-stream
+const analyzeJournalText = async (text, onChunk, signal) => {
   // 1. Hash the normalized text to use as a cache key
   const textHash = crypto
     .createHash("sha256")
@@ -123,9 +156,9 @@ const analyzeJournalText = async (text) => {
     };
   }
 
-  // 3. Build prompt, call the model, and validate the output
+  // 3. Build prompt, stream the model response token by token, and validate the output
   const prompt = buildPrompt(text);
-  const rawContent = await callLLM(prompt);
+  const rawContent = await callLLMStream(prompt, onChunk, signal);
   const result = parseAndValidate(rawContent);
 
   // 4. Persist to cache so the same text is never sent to the LLM again
