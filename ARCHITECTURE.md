@@ -4,14 +4,14 @@
 
 ## 1. How Would You Scale This to 100k Users?
 
-### Stateless API — horizontal scaling is straightforward
+### Horizontal scaling behind a load balancer
 
-The Express API holds no server-side session state. Every request is self-contained: the username or userId comes in the request, the DB is the single source of truth. This means you can run as many instances as needed behind a load balancer and any instance can handle any request.
+The Express API is fully stateless — no server-side sessions, no in-memory state. Any instance can handle any request. Add more instances behind a load balancer as traffic grows.
 
 ```
-                        ┌─────────────┐
-                        │ Load Balancer│  (Nginx / AWS ALB)
-                        └──────┬──────┘
+                        ┌──────────────┐
+                        │ Load Balancer │  (Nginx / AWS ALB)
+                        └──────┬───────┘
                ┌───────────────┼───────────────┐
                ▼               ▼               ▼
         [Express #1]    [Express #2]    [Express #3]
@@ -22,46 +22,24 @@ The Express API holds no server-side session state. Every request is self-contai
 
 ### Database connection pooling
 
-At 100k users, raw Postgres connections become the bottleneck — Postgres can handle ~100 concurrent connections before it degrades. Use **PgBouncer** or Neon's built-in connection pooler to multiplex thousands of app connections into a small pool of real DB connections.
-
-### Read replicas for read-heavy endpoints
-
-Two of the most-called endpoints are read-only:
-
-- `GET /api/journal/:username` — fetches all entries for a user
-- `GET /api/journal/insights/:userId` — aggregates stats
-
-Route all `GET` requests to a **read replica**. Only writes (`POST /api/journal`, analysis updates) go to the primary. This cuts primary DB load significantly.
+Postgres supports ~100 concurrent connections before it degrades. At 100k users, raw connections from multiple Express instances will hit that ceiling fast. Use **PgBouncer** or Neon's built-in pooler to multiplex thousands of app connections into a small pool of real DB connections.
 
 ### Move LLM calls off the HTTP worker
 
-The streaming analysis endpoint (`POST /api/journal/:id/analyze`) holds an HTTP connection open for several seconds while waiting on Groq. At scale, this blocks Express workers and limits concurrency.
+The streaming analysis endpoint holds an HTTP connection open for several seconds while waiting on Groq. At scale this blocks Express workers and limits concurrency.
 
-**Solution:** move analysis to a background job queue.
+Move analysis to a **background job queue** (BullMQ + Redis):
 
 ```
 POST /api/journal/:id/analyze
   │
   ▼
-Enqueue job (BullMQ + Redis)
+Enqueue job → return 202 Accepted immediately
   │
-  ▼
-Return job ID immediately (202 Accepted)
+Background worker → calls Groq → saves result to DB
   │
-Background worker picks up job → calls Groq → saves result
-  │
-Frontend polls GET /api/journal/:id until analyzedAt is set
+Frontend polls until analyzedAt is set
 ```
-
-This keeps the API responsive regardless of how long Groq takes.
-
-### Indexes already in place
-
-`JournalEntry` has indexes on `userId`, `createdAt`, and `emotion` — the three fields used in filters and ordering. No additional indexing needed for the current query patterns.
-
-### CDN for the frontend
-
-Deploy the Next.js frontend to Vercel or a CDN-backed host. Static assets (JS, CSS, images) are served from edge nodes globally — zero load on the backend server.
 
 ---
 
