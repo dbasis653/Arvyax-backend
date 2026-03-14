@@ -1,13 +1,12 @@
 import express from "express";
 import cors from "cors";
-import cookieParser from "cookie-parser";
+import { PAYLOAD_LIMIT } from "./constants/server.constants.js";
 
 const app = express();
 
-app.use(express.json({ limit: "16kb" }));
-app.use(express.urlencoded({ extended: true, limit: "16kb" }));
+app.use(express.json({ limit: PAYLOAD_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: PAYLOAD_LIMIT }));
 app.use(express.static("public"));
-app.use(cookieParser());
 
 const rawCorsOrigin = process.env.CORS_ORIGIN;
 const corsOrigin =

@@ -1,8 +1,7 @@
 import { asyncHandler } from "../utils/async-handler.js";
 import { ApiResponse } from "../utils/api-response.js";
-import { createEntry, getEntriesByUser, getInsightsByUserId, analyzeAndUpdateEntry } from "../services/journal.service.js";
+import { createEntry, getEntriesByUser, getInsightsByUserId, analyzeAndUpdateEntry, findEntryById } from "../services/journal.service.js";
 import { analyzeJournalText } from "../services/llm.service.js";
-import prisma from "../db/prisma.js";
 
 // POST /api/journal
 // Reads { username, ambience, text } from body, delegates to service, returns 201.
@@ -61,7 +60,7 @@ const analyzeEntryById = async (req, res) => {
   const { id } = req.params;
 
   // 1. Confirm entry exists before flushing SSE headers — allows a normal 404 response if missing
-  const exists = await prisma.journalEntry.findUnique({ where: { id }, select: { id: true } });
+  const exists = await findEntryById(id);
   if (!exists) {
     return res.status(404).json({ success: false, message: "Journal entry not found" });
   }

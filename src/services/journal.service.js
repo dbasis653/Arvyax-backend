@@ -127,9 +127,16 @@ const getInsightsByUserId = async (userId) => {
   return { totalEntries, topEmotion, mostUsedAmbience, recentKeywords };
 };
 
+// Returns the journal entry with the given id, or null if it does not exist.
+// Used by the SSE controller to confirm existence before flushing headers.
+const findEntryById = async (id) => {
+  return prisma.journalEntry.findUnique({ where: { id }, select: { id: true } });
+};
+
 export {
   createEntry,
   getEntriesByUser,
   getInsightsByUserId,
   analyzeAndUpdateEntry,
+  findEntryById,
 };

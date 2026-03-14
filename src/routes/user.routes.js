@@ -1,18 +1,9 @@
 import { Router } from "express";
-import { body, validationResult } from "express-validator";
-import { ValidationError } from "../utils/api-error.js";
+import { body } from "express-validator";
+import { validate } from "../middlewares/validate.js";
 import { createUserController, loginUserController } from "../controllers/user.controller.js";
 
 const router = Router();
-
-// Checks express-validator results and throws a ValidationError if any fail.
-const validate = (req, _res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ValidationError("Validation failed", errors.array());
-  }
-  next();
-};
 
 const usernameRules = [
   body("username")

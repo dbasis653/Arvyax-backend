@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { rateLimit } from "express-rate-limit";
-import { body, param, validationResult } from "express-validator";
-import { ValidationError } from "../utils/api-error.js";
+import { body, param } from "express-validator";
+import { validate } from "../middlewares/validate.js";
 import {
   createJournalEntry,
   getJournalEntries,
@@ -9,31 +9,28 @@ import {
   getJournalInsights,
   analyzeEntryById,
 } from "../controllers/journal.controller.js";
+import {
+  RATE_LIMIT_WINDOW_MS,
+  RATE_LIMIT_MAX,
+  RATE_LIMIT_HEADERS,
+  AMBIENCE_OPTIONS,
+  MAX_TEXT_LENGTH,
+} from "../constants/server.constants.js";
 
 const router = Router();
 
 // Limits LLM-backed endpoints to 10 requests per 15 minutes per IP.
 // Protects against Groq API quota exhaustion and cost abuse.
 const llmRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: "draft-8",
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  limit: RATE_LIMIT_MAX,
+  standardHeaders: RATE_LIMIT_HEADERS,
   legacyHeaders: false,
   message: {
     success: false,
     message: "Too many requests, please try again later.",
   },
 });
-
-// Middleware that checks express-validator results and throws a ValidationError if any fail.
-// Applied after every validate() call so controllers never see invalid input.
-const validate = (req, _res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    throw new ValidationError("Validation failed", errors.array());
-  }
-  next();
-};
 
 // POST /api/journal
 router.post(
@@ -42,13 +39,13 @@ router.post(
   [
     body("username").notEmpty().withMessage("username is required"),
     body("ambience")
-      .isIn(["forest", "ocean", "mountain"])
-      .withMessage("ambience must be forest, ocean, or mountain"),
+      .isIn(AMBIENCE_OPTIONS)
+      .withMessage(`ambience must be ${AMBIENCE_OPTIONS.join(", ")}`),
     body("text")
       .notEmpty()
       .withMessage("text is required")
-      .isLength({ max: 5000 })
-      .withMessage("text must be 5000 characters or fewer"),
+      .isLength({ max: MAX_TEXT_LENGTH })
+      .withMessage(`text must be ${MAX_TEXT_LENGTH} characters or fewer`),
   ],
   validate,
   createJournalEntry,
@@ -70,8 +67,8 @@ router.post(
     body("text")
       .notEmpty()
       .withMessage("text is required")
-      .isLength({ max: 5000 })
-      .withMessage("text must be 5000 characters or fewer"),
+      .isLength({ max: MAX_TEXT_LENGTH })
+      .withMessage(`text must be ${MAX_TEXT_LENGTH} characters or fewer`),
   ],
   validate,
   analyzeText,
