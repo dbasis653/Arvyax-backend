@@ -1,5 +1,7 @@
 # Arvyax — Backend
 
+**Live frontend:** [arvyax-ai-journal.vercel.app](https://arvyax-ai-journal.vercel.app)
+
 Express API for the Arvyax AI-assisted journaling system. Handles journal entries, LLM emotion analysis (streamed via SSE), user insights, and analysis caching.
 
 ---
@@ -47,7 +49,26 @@ npm run dev     # development (auto-restart via Nodemon)
 npm start       # production
 ```
 
-Server runs on `http://localhost:5000`.
+Server runs on `http://localhost:5000` in development.
+Production API: https://arvyax-backend-ymgk.onrender.com
+
+---
+
+## Bonus Features Implemented
+
+- **Streaming LLM response** — `POST /api/journal/:id/analyze` streams analysis via SSE, word by word
+- **Caching analysis results** — `AnalysisCache` table stores SHA-256 hash of each text; cache hits skip Groq entirely
+- **Rate limiting** — LLM endpoints limited to 10 requests per 15 minutes per IP
+- **Deployed demo** — live at [arvyax-ai-journal.vercel.app](https://arvyax-ai-journal.vercel.app)
+
+---
+
+## What It Does
+
+- **Login page** — enter a username to access your journal
+- **Journal page** — write entries with an ambience (forest / ocean / mountain)
+- **Live analysis** — click Analyze on any entry to stream the LLM summary word by word
+- **Insights panel** — top emotion, most used ambience, recent keywords across all entries
 
 ---
 
@@ -85,11 +106,15 @@ LLM endpoints are rate-limited to **10 requests per 15 minutes per IP**.
 
 No body. Replace `:username` with the user's username.
 
-### `POST /api/journal/analyze` — Analyze text (standalone, cache-backed)
+> Note: We use :username instead of :userId for this route in this assignment
+
+### `POST /api/journal/analyze` — Abrogate
 
 > Note: this endpoint returns a plain JSON response. For live streaming, I need to change it to `POST /api/journal/:id/analyze` instead — it was introduced specifically to implement SSE streaming so the summary appears word by word in the UI.
 
 ### `POST /api/journal/:id/analyze` — Stream analysis for an entry (SSE)
+
+> Note: Get the :id with `GET /api/journal/:username`
 
 No body. Replace `:id` with the journal entry's CUID.
 Returns a `text/event-stream` with events:
