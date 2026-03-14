@@ -53,16 +53,58 @@ Server runs on `http://localhost:5000`.
 
 ## API Endpoints
 
-| Method | Endpoint                        | Description                                 |
-| ------ | ------------------------------- | ------------------------------------------- |
-| POST   | `/api/users`                    | Create a user (`username` required)         |
-| POST   | `/api/journal`                  | Create a journal entry                      |
-| GET    | `/api/journal/:username`        | Get all entries for a user                  |
-| POST   | `/api/journal/analyze`          | Analyze text with LLM (cache-backed)        |
-| POST   | `/api/journal/:id/analyze`      | Stream live LLM analysis for an entry (SSE) |
-| GET    | `/api/journal/insights/:userId` | Get aggregated insights for a user          |
-
 LLM endpoints are rate-limited to **10 requests per 15 minutes per IP**.
 
-For full request/response shapes see [DOCUMENTATION.md](DOCUMENTATION.md).
+---
+
+### `POST /api/users` — Create user
+
+```json
+{ "username": "alice" }
+```
+
+### `POST /api/users/login` — Login
+
+```json
+{ "username": "alice" }
+```
+
+### `POST /api/journal` — Create journal entry
+
+```json
+{
+  "username": "alice",
+  "ambience": "forest",
+  "text": "I felt calm today after listening to the rain."
+}
+```
+
+> `ambience` must be one of: `forest`, `ocean`, `mountain`. `text` max 5000 characters.
+
+### `GET /api/journal/:username` — Get all entries for a user
+
+No body. Replace `:username` with the user's username.
+
+### `POST /api/journal/analyze` — Analyze text (standalone, cache-backed)
+
+> Note: this endpoint returns a plain JSON response. For live streaming, I need to change it to `POST /api/journal/:id/analyze` instead — it was introduced specifically to implement SSE streaming so the summary appears word by word in the UI.
+
+### `POST /api/journal/:id/analyze` — Stream analysis for an entry (SSE)
+
+No body. Replace `:id` with the journal entry's CUID.
+Returns a `text/event-stream` with events:
+
+```
+data: {"type":"chunk","text":"The user feels..."}
+data: {"type":"done","entry":{...}}
+data: {"type":"error","message":"..."}
+```
+
+### `GET /api/journal/insights/:userId` — Get insights for a user
+
+No body. Replace `:userId` with the user's CUID (returned from create/login).
+
+---
+
+For full response shapes see [DOCUMENTATION.md](DOCUMENTATION.md).
 For architecture decisions see [ARCHITECTURE.md](ARCHITECTURE.md).
