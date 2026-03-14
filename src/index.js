@@ -1,6 +1,5 @@
 import "dotenv/config"; // must be first — loads .env before any other module runs
 import app from "./app.js";
-// Shared singleton from db/prisma.js — never instantiate PrismaClient outside this file.
 import prisma from "./db/prisma.js";
 
 const port = process.env.PORT || 3000;

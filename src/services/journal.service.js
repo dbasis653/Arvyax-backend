@@ -84,7 +84,6 @@ const getInsightsByUserId = async (userId) => {
     orderBy: { createdAt: "desc" },
   });
 
-  // 3. Total count is a straight length
   const totalEntries = entries.length;
 
   // 4. Count emotion occurrences across analyzed entries, pick the highest

@@ -9,7 +9,6 @@ app.use(express.urlencoded({ extended: true, limit: "16kb" }));
 app.use(express.static("public"));
 app.use(cookieParser());
 
-//CORS configuration
 const rawCorsOrigin = process.env.CORS_ORIGIN;
 const corsOrigin =
   !rawCorsOrigin || rawCorsOrigin === "*"
